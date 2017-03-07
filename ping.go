@@ -137,11 +137,12 @@ type Pinger struct {
 	ipaddr *net.IPAddr
 	addr   string
 
-	ipv4     bool
-	source   string
-	size     int
-	sequence int
-	network  string
+	ipv4      bool
+	source    string
+	size      int
+	sequence  int
+	network   string
+	timestamp time.Time
 }
 
 type packet struct {
@@ -151,6 +152,9 @@ type packet struct {
 
 // Packet represents a received and processed ICMP echo packet.
 type Packet struct {
+	// TimeStamp is the time the ping request was sent.
+	TimeStamp time.Time
+
 	// Rtt is the round-trip time it took to ping.
 	Rtt time.Duration
 
@@ -167,6 +171,9 @@ type Packet struct {
 // Statistics represent the stats of a currently running or finished
 // pinger operation.
 type Statistics struct {
+	// TimeStamp is the time the first ping request was sent.
+	TimeStamp time.Time
+
 	// PacketsRecv is the number of packets received.
 	PacketsRecv int
 
@@ -279,6 +286,7 @@ func (p *Pinger) run() {
 	wg.Add(1)
 	go p.recvICMP(conn, recv, &wg)
 
+	p.timestamp = time.Now()
 	err := p.sendICMP(conn)
 	if err != nil {
 		fmt.Println(err.Error())
@@ -357,6 +365,7 @@ func (p *Pinger) Statistics() *Statistics {
 		IPAddr:      p.ipaddr,
 		MaxRtt:      max,
 		MinRtt:      min,
+		TimeStamp:   p.timestamp,
 	}
 	if len(p.rtts) > 0 {
 		s.AvgRtt = total / time.Duration(len(p.rtts))
@@ -434,9 +443,10 @@ func (p *Pinger) processPacket(recv *packet) error {
 
 	switch pkt := m.Body.(type) {
 	case *icmp.Echo:
-		outPkt.Rtt = time.Since(bytesToTime(pkt.Data[:timeSliceLength]))
+		outPkt.TimeStamp = bytesToTime(pkt.Data[:timeSliceLength])
+		outPkt.Rtt = time.Since(outPkt.TimeStamp)
 		outPkt.Seq = pkt.Seq
-		p.PacketsRecv += 1
+		p.PacketsRecv++
 	default:
 		// Very bad, not sure how this can happen
 		return fmt.Errorf("Error, invalid ICMP echo reply. Body type: %T, %s",
@@ -489,8 +499,8 @@ func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
 				}
 			}
 		}
-		p.PacketsSent += 1
-		p.sequence += 1
+		p.PacketsSent++
+		p.sequence++
 		break
 	}
 	return nil
