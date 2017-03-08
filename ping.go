@@ -60,7 +60,7 @@ import (
 )
 
 const (
-	timeSliceLength  = 8
+	binTimeLen       = 15
 	protocolICMP     = 1
 	protocolIPv6ICMP = 58
 )
@@ -90,10 +90,10 @@ func NewPinger(addr string) (*Pinger, error) {
 		Interval: time.Second,
 		Timeout:  time.Second * 100000,
 		Count:    -1,
+		Size:     48,
 
 		network: "udp",
 		ipv4:    ipv4,
-		size:    timeSliceLength,
 
 		done: make(chan bool),
 	}, nil
@@ -112,6 +112,9 @@ type Pinger struct {
 	// packets. If this option is not specified, pinger will operate until
 	// interrupted.
 	Count int
+
+	// Size of each packet sent
+	Size int
 
 	// Debug runs in debug mode
 	Debug bool
@@ -139,7 +142,6 @@ type Pinger struct {
 
 	ipv4      bool
 	source    string
-	size      int
 	sequence  int
 	network   string
 	timestamp time.Time
@@ -443,7 +445,7 @@ func (p *Pinger) processPacket(recv *packet) error {
 
 	switch pkt := m.Body.(type) {
 	case *icmp.Echo:
-		outPkt.TimeStamp = bytesToTime(pkt.Data[:timeSliceLength])
+		outPkt.TimeStamp.UnmarshalBinary(pkt.Data[:binTimeLen])
 		outPkt.Rtt = time.Since(outPkt.TimeStamp)
 		outPkt.Seq = pkt.Seq
 		p.PacketsRecv++
@@ -475,16 +477,19 @@ func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
 		dst = &net.UDPAddr{IP: p.ipaddr.IP, Zone: p.ipaddr.Zone}
 	}
 
-	t := timeToBytes(time.Now())
-	if p.size-timeSliceLength != 0 {
-		t = append(t, byteSliceOfSize(p.size-timeSliceLength)...)
+	data, _ := time.Now().MarshalBinary()
+	if p.Size > binTimeLen {
+		filler := make([]byte, p.Size-binTimeLen)
+		rand.Read(filler)
+		data = append(data, filler...)
 	}
+
 	bytes, err := (&icmp.Message{
 		Type: typ, Code: 0,
 		Body: &icmp.Echo{
 			ID:   rand.Intn(65535),
 			Seq:  p.sequence,
-			Data: t,
+			Data: data,
 		},
 	}).Marshal(nil)
 	if err != nil {
@@ -533,27 +538,10 @@ func ipv4Payload(b []byte) []byte {
 	return b[hdrlen:]
 }
 
-func bytesToTime(b []byte) time.Time {
-	var nsec int64
-	for i := uint8(0); i < 8; i++ {
-		nsec += int64(b[i]) << ((7 - i) * 8)
-	}
-	return time.Unix(nsec/1000000000, nsec%1000000000)
-}
-
 func isIPv4(ip net.IP) bool {
 	return len(ip.To4()) == net.IPv4len
 }
 
 func isIPv6(ip net.IP) bool {
 	return len(ip) == net.IPv6len
-}
-
-func timeToBytes(t time.Time) []byte {
-	nsec := t.UnixNano()
-	b := make([]byte, 8)
-	for i := uint8(0); i < 8; i++ {
-		b[i] = byte((nsec >> ((7 - i) * 8)) & 0xff)
-	}
-	return b
 }
