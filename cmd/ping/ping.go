@@ -5,13 +5,13 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/sparrc/go-ping"
+	"github.com/abaskin/go-ping"
 )
 
 var usage = `
 Usage:
 
-    ping [-c count] [-i interval] [-t timeout] [--privileged] host
+    ping [-c count] [-i interval] [-t timeout] [-s size] [--privileged] host
 
 Examples:
 
@@ -27,6 +27,9 @@ Examples:
     # ping google for 10 seconds
     ping -t 10s www.google.com
 
+    # ping google with 1024 byte packets
+    ping -s 1024 www.google.com
+
     # Send a privileged raw ICMP ping
     sudo ping --privileged www.google.com
 `
@@ -35,6 +38,7 @@ func main() {
 	timeout := flag.Duration("t", time.Second*100000, "")
 	interval := flag.Duration("i", time.Second, "")
 	count := flag.Int("c", -1, "")
+	size := flag.Int("s", 48, "")
 	privileged := flag.Bool("privileged", false, "")
 	flag.Usage = func() {
 		fmt.Printf(usage)
@@ -66,6 +70,7 @@ func main() {
 	}
 
 	pinger.Count = *count
+	pinger.Size = *size
 	pinger.Interval = *interval
 	pinger.Timeout = *timeout
 	pinger.SetPrivileged(*privileged)

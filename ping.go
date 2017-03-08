@@ -413,7 +413,7 @@ func (p *Pinger) recvICMP(
 		case <-p.done:
 			return
 		default:
-			bytes := make([]byte, 512)
+			bytes := make([]byte, p.Size+8)
 			conn.SetReadDeadline(time.Now().Add(time.Millisecond * 100))
 			n, _, err := conn.ReadFrom(bytes)
 			if err != nil {
