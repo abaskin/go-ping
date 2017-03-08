@@ -271,19 +271,25 @@ func (p *Pinger) Privileged() bool {
 // Run runs the pinger. This is a blocking function that will exit when it's
 // done. If Count or Interval are not specified, it will run continuously until
 // it is interrupted.
-func (p *Pinger) Run() {
-	p.run()
+func (p *Pinger) Run() []error {
+	return p.run()
 }
 
-func (p *Pinger) run() {
-	var conn *icmp.PacketConn
+func (p *Pinger) run() []error {
+	errList := []error{}
+	var (
+		conn *icmp.PacketConn
+		err  error
+	)
 	if p.ipv4 {
-		if conn = p.listen(ipv4Proto[p.network], p.source); conn == nil {
-			return
+		if conn, err = p.listen(ipv4Proto[p.network], p.source); err != nil {
+			errList = append(errList, fmt.Errorf("Unable to open ipv4 connecton: %s", err.Error()))
+			return errList
 		}
 	} else {
-		if conn = p.listen(ipv6Proto[p.network], p.source); conn == nil {
-			return
+		if conn, err = p.listen(ipv6Proto[p.network], p.source); err != nil {
+			errList = append(errList, fmt.Errorf("Unable to open ipv6 connecton: %s", err.Error()))
+			return errList
 		}
 	}
 	defer conn.Close()
@@ -295,9 +301,9 @@ func (p *Pinger) run() {
 	go p.recvICMP(conn, recv, &wg)
 
 	p.timestamp = time.Now()
-	err := p.sendICMP(conn)
+	err = p.sendICMP(conn)
 	if err != nil {
-		fmt.Println(err.Error())
+		errList = append(errList, err)
 	}
 
 	timeout := time.NewTicker(p.Timeout)
@@ -312,26 +318,35 @@ func (p *Pinger) run() {
 			close(p.done)
 		case <-p.done:
 			wg.Wait()
-			return
+			if len(errList) != 0 {
+				return errList
+			}
+			return nil
 		case <-timeout.C:
 			close(p.done)
 			wg.Wait()
-			return
+			if len(errList) != 0 {
+				return errList
+			}
+			return nil
 		case <-interval.C:
 			err = p.sendICMP(conn)
 			if err != nil {
-				fmt.Println("FATAL: ", err.Error())
+				errList = append(errList, err)
 			}
 		case r := <-recv:
 			err := p.processPacket(r)
 			if err != nil {
-				fmt.Println("FATAL: ", err.Error())
+				errList = append(errList, err)
 			}
 		default:
 			if p.Count > 0 && p.PacketsRecv >= p.Count {
 				close(p.done)
 				wg.Wait()
-				return
+				if len(errList) != 0 {
+					return errList
+				}
+				return nil
 			}
 		}
 	}
@@ -528,14 +543,13 @@ func (p *Pinger) sendICMP(conn *icmp.PacketConn) error {
 	return nil
 }
 
-func (p *Pinger) listen(netProto string, source string) *icmp.PacketConn {
+func (p *Pinger) listen(netProto string, source string) (*icmp.PacketConn, error) {
 	conn, err := icmp.ListenPacket(netProto, source)
 	if err != nil {
-		fmt.Printf("Error listening for ICMP packets: %s\n", err.Error())
 		close(p.done)
-		return nil
+		return nil, fmt.Errorf("error listening for ICMP packets: %s", err.Error())
 	}
-	return conn
+	return conn, nil
 }
 
 func byteSliceOfSize(n int) []byte {
