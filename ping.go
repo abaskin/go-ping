@@ -157,6 +157,12 @@ type Packet struct {
 	// TimeStamp is the time the ping request was sent.
 	TimeStamp time.Time
 
+	// Was the packet lost
+	Loss bool
+
+	// Why was the packet lost
+	LossReason string
+
 	// Rtt is the round-trip time it took to ping.
 	Rtt time.Duration
 
@@ -444,7 +450,18 @@ func (p *Pinger) processPacket(recv *packet) error {
 	}
 
 	switch pkt := m.Body.(type) {
+	case *icmp.TimeExceeded:
+		outPkt.Loss = true
+		outPkt.LossReason = "Time Exceeded"
+	case *icmp.PacketTooBig:
+		outPkt.Loss = true
+		outPkt.LossReason = "Packet Too Big"
+	case *icmp.DstUnreach:
+		outPkt.Loss = true
+		outPkt.LossReason = "Destination Unreachable"
 	case *icmp.Echo:
+		outPkt.Loss = false
+		outPkt.LossReason = ""
 		outPkt.TimeStamp.UnmarshalBinary(pkt.Data[:binTimeLen])
 		outPkt.Rtt = time.Since(outPkt.TimeStamp)
 		outPkt.Seq = pkt.Seq
